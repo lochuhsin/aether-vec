@@ -99,3 +99,38 @@ impl DatabaseRegistery {
         self.registry.insert(key.to_string(), value);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::AetherDB;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_new_with_valid_path() {
+        let test_path = "./test_db_valid";
+        std::fs::remove_dir_all("./test_db_valid").ok();
+
+        let result = AetherDB::new(test_path);
+
+        assert!(result.is_ok(), "Should successfully create database");
+
+        let db = result.unwrap();
+        assert!(Arc::strong_count(&db) >= 1, "DB should be wrapped in Arc");
+
+        std::fs::remove_dir_all(test_path).ok();
+    }
+
+    #[test]
+    fn test_new_creates_directory_if_not_exists() {
+        let test_path = "./test_db_nested/level1/level2";
+
+        std::fs::remove_dir_all("./test_db_nested").ok();
+
+        let result = AetherDB::new(test_path);
+        assert!(result.is_ok());
+
+        assert!(std::path::Path::new(test_path).exists());
+
+        std::fs::remove_dir_all("./test_db_nested").ok();
+    }
+}
