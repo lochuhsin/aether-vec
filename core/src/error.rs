@@ -3,6 +3,9 @@ use std::fmt;
 #[derive(Debug)]
 pub enum CollectionError {
     InvalidDimension(Option<String>),
+    InvalidIndexType(Option<String>),
+    InvalidDistanceType(Option<String>),
+    NotFound(Option<String>),
 }
 
 impl fmt::Display for CollectionError {
@@ -13,6 +16,24 @@ impl fmt::Display for CollectionError {
             }
             CollectionError::InvalidDimension(None) => {
                 write!(f, "Invalid dimension")
+            }
+            CollectionError::InvalidIndexType(Some(msg)) => {
+                write!(f, "Invalid index type: {}", msg)
+            }
+            CollectionError::InvalidIndexType(None) => {
+                write!(f, "Invalid index type")
+            }
+            CollectionError::InvalidDistanceType(Some(msg)) => {
+                write!(f, "Invalid distance type: {}", msg)
+            }
+            CollectionError::InvalidDistanceType(None) => {
+                write!(f, "Invalid distance type")
+            }
+            CollectionError::NotFound(Some(msg)) => {
+                write!(f, "Collection not found: {}", msg)
+            }
+            CollectionError::NotFound(None) => {
+                write!(f, "Collection not found")
             }
         }
     }

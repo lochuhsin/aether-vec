@@ -1,23 +1,23 @@
-use crate::collection::Collection;
+use crate::collection::{Collection, CollectionManager, IndexConfig};
 use crate::constant::MAX_DIMENSION;
 use crate::error::{CollectionError, DatabaseError};
 use fs2::FileExt;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, Mutex, Weak};
+use std::sync::{Arc, LazyLock, Mutex, RwLock, Weak};
 static DATABASE_REGISTRY: LazyLock<Mutex<DatabaseRegistery>> =
     LazyLock::new(|| Mutex::new(DatabaseRegistery::new()));
 
 pub struct AetherDB {
     path: PathBuf,
     _lock_file: File,
+    collection_manager: CollectionManager,
 }
 
 impl AetherDB {
     pub fn new(path: &str) -> Result<Arc<Self>, DatabaseError> {
         {
-            // 獲取 Lock, 作用域結束後或自動釋放鎖, 因為 MutexGuard
             let registry = DATABASE_REGISTRY.lock().unwrap();
             if let Some(weak_ref) = registry.get(path) {
                 if let Some(strong_ref) = weak_ref.upgrade() {
@@ -26,11 +26,14 @@ impl AetherDB {
             }
         }
 
+        // init db
         let pathbuf = PathBuf::from(path);
         let lock_file = is_valid_path(&pathbuf)?;
+
         let db = Arc::new(AetherDB {
             path: pathbuf,
             _lock_file: lock_file,
+            collection_manager: CollectionManager::new(),
         });
 
         let mut registry = DATABASE_REGISTRY.lock().unwrap();
@@ -41,16 +44,33 @@ impl AetherDB {
 
     pub fn create_collection(
         &self,
-        index: &str,
+        name: &str,
         dimension: i32,
-    ) -> Result<Collection, CollectionError> {
+        distance: &str,
+        index_config: IndexConfig,
+    ) -> Result<Arc<RwLock<Collection>>, CollectionError> {
         if dimension > MAX_DIMENSION || dimension < 1 {
             return Err(CollectionError::InvalidDimension(Some(
                 "Dimension must be between 1 and 65332".to_string(),
             )));
         }
 
-        Ok(Collection::new(dimension, index.to_string()))
+        let collection = Collection::new(name, dimension, distance, index_config)?;
+        Ok(self.collection_manager.create_collection(collection))
+    }
+
+    pub fn get_collection(&self, name: &str) -> Result<Arc<RwLock<Collection>>, CollectionError> {
+        self.collection_manager
+            .get_collection(name)
+            .ok_or_else(|| CollectionError::NotFound(Some(name.to_string())))
+    }
+
+    pub fn list_collections(&self) -> Result<Vec<String>, CollectionError> {
+        panic!("Not implemented");
+    }
+
+    pub fn delete_collection(&self, name: &str) -> Result<(), CollectionError> {
+        panic!("Not implemented");
     }
 }
 
