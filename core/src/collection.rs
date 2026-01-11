@@ -1,10 +1,14 @@
+use uuid::Uuid;
+
 use crate::document::Document;
 use crate::error::CollectionError;
+use crate::memtable::{MemTable, get_memtable};
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::{Arc, RwLock};
 
-enum IndexType {
-    HNSM,
+pub enum IndexType {
+    HNSW,
     IVF,
     Flat,
 }
@@ -15,7 +19,7 @@ impl FromStr for IndexType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let lower = s.to_lowercase();
         match lower.as_str() {
-            "hnsm" => Ok(IndexType::HNSM),
+            "hnsw" => Ok(IndexType::HNSW),
             "ivf" => Ok(IndexType::IVF),
             "flat" => Ok(IndexType::Flat),
             _ => Err(CollectionError::InvalidIndexType(Some(
@@ -39,21 +43,10 @@ impl IndexConfig {
         })
     }
 
-    pub fn new_with_default() -> Self {
-        let mut default_params = HashMap::new();
-        default_params.insert("m".to_string(), "16".to_string());
-        default_params.insert("efConstruction".to_string(), "200".to_string());
-        default_params.insert("efSearch".to_string(), "50".to_string());
-        IndexConfig {
-            index: IndexType::HNSM,
-            params: default_params,
-        }
-    }
-
     pub fn new_with_default_config(index: &str) -> Result<Self, CollectionError> {
         let index_type = IndexType::from_str(index)?;
         match index_type {
-            IndexType::HNSM => {
+            IndexType::HNSW => {
                 let mut default_params = HashMap::new();
                 default_params.insert("m".to_string(), "16".to_string());
                 default_params.insert("efConstruction".to_string(), "200".to_string());
@@ -83,6 +76,18 @@ impl IndexConfig {
     }
 }
 
+impl Default for IndexConfig {
+    fn default() -> Self {
+        let mut default_params = HashMap::new();
+        default_params.insert("m".to_string(), "16".to_string());
+        default_params.insert("efConstruction".to_string(), "200".to_string());
+        default_params.insert("efSearch".to_string(), "50".to_string());
+        IndexConfig {
+            index: IndexType::HNSW,
+            params: default_params,
+        }
+    }
+}
 enum DistanceType {
     Cosine,
     L2,
@@ -111,6 +116,8 @@ pub struct Collection {
     dimension: i32,
     distance: DistanceType,
     index_config: IndexConfig,
+
+    memtable: RwLock<Box<dyn MemTable>>,
     // wal_manager::
 }
 
@@ -125,47 +132,64 @@ impl Collection {
             name: name.to_string(),
             dimension,
             distance: distance.parse()?,
+            memtable: RwLock::new(get_memtable(&index_config.index)),
             index_config,
         })
     }
-    pub fn upsert(&self, document: Document) -> Result<(), CollectionError> {
+    pub fn upsert(&mut self, document: Document) -> Result<(), CollectionError> {
         if document.dimension() != self.dimension {
             Err(CollectionError::InvalidDimension(Some(
                 "Dimension mismatch".to_string(),
             )))
         } else {
+            let mut memtable = self.memtable.write().unwrap();
+            memtable.insert(document);
             Ok(())
         }
     }
 
-    pub fn search(&self, vector: Vec<f32>) {}
+    pub fn search(&self, vector: &Vec<f32>) -> Option<Arc<Document>> {
+        self.memtable.read().unwrap().search(vector)
+    }
 
-    pub fn fetch(&self, uuid: &str) {}
+    pub fn fetch(&self, uuid: &Uuid) -> Option<Arc<Document>> {
+        self.memtable.read().unwrap().get(uuid)
+    }
 
-    pub fn delete(&self, uuid: &str) {}
+    pub fn delete(&mut self, uuid: &Uuid) {
+        self.memtable.write().unwrap().delete(uuid);
+    }
 }
 
-// 需要 Thread Safe
 pub struct CollectionManager {
-    collections: HashMap<String, Collection>,
+    collections: RwLock<HashMap<String, Arc<RwLock<Collection>>>>,
 }
 
 impl CollectionManager {
     pub fn new() -> Self {
         CollectionManager {
-            collections: HashMap::new(),
+            collections: RwLock::new(HashMap::new()),
         }
     }
 
-    pub fn create_collection(&mut self, collection: Collection) {
-        self.collections.insert(collection.name.clone(), collection);
+    pub fn create_collection(&self, collection: Collection) -> Arc<RwLock<Collection>> {
+        let name = collection.name.clone();
+        let arc_collection = Arc::new(RwLock::new(collection));
+
+        self.collections
+            .write()
+            .unwrap()
+            .insert(name, arc_collection.clone());
+
+        arc_collection
     }
 
-    pub fn get_collection(&self, name: &str) -> Option<&Collection> {
-        self.collections.get(name)
+    pub fn get_collection(&self, name: &str) -> Option<Arc<RwLock<Collection>>> {
+        let map = self.collections.read().unwrap();
+        map.get(name).cloned()
     }
 
     pub fn delete_collection(&mut self, name: &str) {
-        self.collections.remove(name);
+        self.collections.write().unwrap().remove(name);
     }
 }

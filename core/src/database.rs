@@ -5,7 +5,7 @@ use fs2::FileExt;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, Mutex, Weak};
+use std::sync::{Arc, LazyLock, Mutex, RwLock, Weak};
 static DATABASE_REGISTRY: LazyLock<Mutex<DatabaseRegistery>> =
     LazyLock::new(|| Mutex::new(DatabaseRegistery::new()));
 
@@ -43,12 +43,12 @@ impl AetherDB {
     }
 
     pub fn create_collection(
-        &mut self,
+        &self,
         name: &str,
         dimension: i32,
         distance: &str,
         index_config: IndexConfig,
-    ) -> Result<Collection, CollectionError> {
+    ) -> Result<Arc<RwLock<Collection>>, CollectionError> {
         if dimension > MAX_DIMENSION || dimension < 1 {
             return Err(CollectionError::InvalidDimension(Some(
                 "Dimension must be between 1 and 65332".to_string(),
@@ -56,12 +56,13 @@ impl AetherDB {
         }
 
         let collection = Collection::new(name, dimension, distance, index_config)?;
-        self.collection_manager.create_collection(collection);
-        Ok(collection)
+        Ok(self.collection_manager.create_collection(collection))
     }
 
-    pub fn get_collection(&self, name: &str) -> Result<Collection, CollectionError> {
-        panic!("Not implemented");
+    pub fn get_collection(&self, name: &str) -> Result<Arc<RwLock<Collection>>, CollectionError> {
+        self.collection_manager
+            .get_collection(name)
+            .ok_or_else(|| CollectionError::NotFound(Some(name.to_string())))
     }
 
     pub fn list_collections(&self) -> Result<Vec<String>, CollectionError> {
