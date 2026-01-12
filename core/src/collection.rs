@@ -3,6 +3,7 @@ use uuid::Uuid;
 use crate::document::Document;
 use crate::error::CollectionError;
 use crate::memtable::{MemTable, get_memtable};
+use crate::wal::WalManager;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
@@ -88,6 +89,7 @@ impl Default for IndexConfig {
         }
     }
 }
+
 enum DistanceType {
     Cosine,
     L2,
@@ -118,7 +120,7 @@ pub struct Collection {
     index_config: IndexConfig,
 
     memtable: RwLock<Box<dyn MemTable>>,
-    // wal_manager::
+    wal_manager: Arc<WalManager>,
 }
 
 impl Collection {
@@ -127,13 +129,15 @@ impl Collection {
         dimension: i32,
         distance: &str,
         index_config: IndexConfig,
+        wal_manager: Arc<WalManager>,
     ) -> Result<Self, CollectionError> {
         Ok(Collection {
             name: name.to_string(),
-            dimension,
+            dimension: dimension,
             distance: distance.parse()?,
             memtable: RwLock::new(get_memtable(&index_config.index)),
-            index_config,
+            index_config: index_config,
+            wal_manager: wal_manager,
         })
     }
     pub fn upsert(&mut self, document: Document) -> Result<(), CollectionError> {
@@ -148,8 +152,8 @@ impl Collection {
         }
     }
 
-    pub fn search(&self, vector: &Vec<f32>) -> Option<Arc<Document>> {
-        self.memtable.read().unwrap().search(vector)
+    pub fn search(&self, vector: &Vec<f32>, top_k: i32) -> Vec<Arc<Document>> {
+        self.memtable.read().unwrap().search(vector, top_k)
     }
 
     pub fn fetch(&self, uuid: &Uuid) -> Option<Arc<Document>> {

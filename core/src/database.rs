@@ -1,6 +1,7 @@
 use crate::collection::{Collection, CollectionManager, IndexConfig};
 use crate::constant::MAX_DIMENSION;
 use crate::error::{CollectionError, DatabaseError};
+use crate::wal::WalManager;
 use fs2::FileExt;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -11,8 +12,9 @@ static DATABASE_REGISTRY: LazyLock<Mutex<DatabaseRegistery>> =
 
 pub struct AetherDB {
     path: PathBuf,
-    _lock_file: File,
     collection_manager: CollectionManager,
+    wal_manager: Arc<WalManager>,
+    _lock_file: File, // process lock
 }
 
 impl AetherDB {
@@ -28,12 +30,18 @@ impl AetherDB {
 
         // init db
         let pathbuf = PathBuf::from(path);
-        let lock_file = is_valid_path(&pathbuf)?;
+
+        let lock_file = validate_path(&pathbuf)?;
+
+        lock_file.try_lock_exclusive().map_err(|_| {
+            DatabaseError::InvalidPath(Some("Database is locked by another process".to_string()))
+        })?;
 
         let db = Arc::new(AetherDB {
-            path: pathbuf,
-            _lock_file: lock_file,
             collection_manager: CollectionManager::new(),
+            wal_manager: Arc::new(WalManager::new(&pathbuf)),
+            _lock_file: lock_file,
+            path: pathbuf,
         });
 
         let mut registry = DATABASE_REGISTRY.lock().unwrap();
@@ -55,7 +63,13 @@ impl AetherDB {
             )));
         }
 
-        let collection = Collection::new(name, dimension, distance, index_config)?;
+        let collection = Collection::new(
+            name,
+            dimension,
+            distance,
+            index_config,
+            Arc::clone(&self.wal_manager),
+        )?;
         Ok(self.collection_manager.create_collection(collection))
     }
 
@@ -74,7 +88,7 @@ impl AetherDB {
     }
 }
 
-pub fn is_valid_path(path: &PathBuf) -> Result<File, DatabaseError> {
+pub fn validate_path(path: &PathBuf) -> Result<File, DatabaseError> {
     if !path.exists() {
         std::fs::create_dir_all(path).map_err(|e| {
             DatabaseError::InvalidPath(Some(format!("Cannot create directory: {}", e)))
@@ -92,10 +106,6 @@ pub fn is_valid_path(path: &PathBuf) -> Result<File, DatabaseError> {
         .create(true)
         .open(&lock_path)
         .map_err(|e| DatabaseError::InvalidPath(Some(format!("Cannot open lock file: {}", e))))?;
-
-    lock_file.try_lock_exclusive().map_err(|_| {
-        DatabaseError::InvalidPath(Some("Database is locked by another process".to_string()))
-    })?;
 
     Ok(lock_file)
 }
