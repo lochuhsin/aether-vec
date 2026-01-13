@@ -1,6 +1,5 @@
 use uuid::Uuid;
 
-use crate::AetherDB;
 use crate::IndexConfig;
 use crate::test_utils::random_document;
 use crate::tests::utils::TestDb;
@@ -9,7 +8,6 @@ use crate::tests::utils::TestDb;
 fn test_add_documents() -> Result<(), Box<dyn std::error::Error>> {
     let test_dimension = 12345;
     let test_document = random_document(test_dimension as usize);
-    let test_path = "./test_path/db/test_add";
 
     let test_db = TestDb::new("test_add").unwrap();
 

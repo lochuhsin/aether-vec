@@ -121,7 +121,7 @@ pub struct Collection {
     index_config: IndexConfig,
     memtable: RwLock<Box<dyn MemTable>>,
     wal_manager: WalManager,
-    uuid: Uuid,
+    seq_no: u64,
 }
 
 impl Collection {
@@ -130,7 +130,7 @@ impl Collection {
         dimension: i32,
         distance: &str,
         index_config: IndexConfig,
-        uuid: Uuid,
+        seq_no: u64,
         wal_manager: WalManager,
     ) -> Result<Self, CollectionError> {
         Ok(Collection {
@@ -140,7 +140,7 @@ impl Collection {
             memtable: RwLock::new(get_memtable(&index_config.index)),
             index_config: index_config,
             wal_manager: wal_manager,
-            uuid: uuid,
+            seq_no,
         })
     }
     pub fn upsert(&mut self, document: Document) -> Result<(), CollectionError> {
