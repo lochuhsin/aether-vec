@@ -3,6 +3,7 @@ use uuid::Uuid;
 use crate::document::Document;
 use crate::error::CollectionError;
 use crate::memtable::{MemTable, get_memtable};
+use crate::wal::Operation;
 use crate::wal::WalManager;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -118,9 +119,9 @@ pub struct Collection {
     dimension: i32,
     distance: DistanceType,
     index_config: IndexConfig,
-
     memtable: RwLock<Box<dyn MemTable>>,
-    wal_manager: Arc<WalManager>,
+    wal_manager: WalManager,
+    uuid: Uuid,
 }
 
 impl Collection {
@@ -129,7 +130,8 @@ impl Collection {
         dimension: i32,
         distance: &str,
         index_config: IndexConfig,
-        wal_manager: Arc<WalManager>,
+        uuid: Uuid,
+        wal_manager: WalManager,
     ) -> Result<Self, CollectionError> {
         Ok(Collection {
             name: name.to_string(),
@@ -138,6 +140,7 @@ impl Collection {
             memtable: RwLock::new(get_memtable(&index_config.index)),
             index_config: index_config,
             wal_manager: wal_manager,
+            uuid: uuid,
         })
     }
     pub fn upsert(&mut self, document: Document) -> Result<(), CollectionError> {
@@ -146,8 +149,10 @@ impl Collection {
                 "Dimension mismatch".to_string(),
             )))
         } else {
-            let mut memtable = self.memtable.write().unwrap();
-            memtable.insert(document);
+            self.wal_manager.write(Operation::Insert, &document)?;
+            let mut memtable = self.memtable.write()?;
+            memtable.upsert(document);
+
             Ok(())
         }
     }

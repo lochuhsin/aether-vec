@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+#[derive(Serialize, Deserialize)]
 pub struct Document {
     pub id: Uuid,
     pub vector: Vec<f32>,

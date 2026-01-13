@@ -3,8 +3,13 @@ use core::IndexConfig;
 
 fn main() {
     let db = AetherDB::new("./test_path/db/test").expect("Failed to create database");
-    db.create_collection("abcde", 12345, "l2", IndexConfig::default())
-        .expect("Failed to create collection");
+    db.create_collection(
+        "abcde",
+        12345,
+        "l2",
+        IndexConfig::new_with_default_config("flat").unwrap(),
+    )
+    .expect("Failed to create collection");
 
     let x = 5;
     let y = x;

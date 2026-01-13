@@ -7,11 +7,15 @@ mod memtable;
 mod utils;
 mod wal;
 
-#[cfg(test)]
-mod tests;
-
 pub use collection::{Collection, IndexConfig};
 pub use database::AetherDB;
 pub use document::Document;
-pub use error::CollectionError;
+pub use error::{CollectionError, WalError};
 pub use utils::*;
+pub use wal::Operation;
+
+#[cfg(test)]
+mod test_utils;
+
+#[cfg(test)]
+mod tests;

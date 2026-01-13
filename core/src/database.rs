@@ -7,13 +7,13 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, RwLock, Weak};
+use uuid::Uuid;
 static DATABASE_REGISTRY: LazyLock<Mutex<DatabaseRegistery>> =
     LazyLock::new(|| Mutex::new(DatabaseRegistery::new()));
 
 pub struct AetherDB {
     path: PathBuf,
     collection_manager: CollectionManager,
-    wal_manager: Arc<WalManager>,
     _lock_file: File, // process lock
 }
 
@@ -39,7 +39,6 @@ impl AetherDB {
 
         let db = Arc::new(AetherDB {
             collection_manager: CollectionManager::new(),
-            wal_manager: Arc::new(WalManager::new(&pathbuf)),
             _lock_file: lock_file,
             path: pathbuf,
         });
@@ -63,12 +62,14 @@ impl AetherDB {
             )));
         }
 
+        let uuid = Uuid::new_v4();
         let collection = Collection::new(
             name,
             dimension,
             distance,
             index_config,
-            Arc::clone(&self.wal_manager),
+            uuid,
+            WalManager::new(&self.path, uuid.clone())?,
         )?;
         Ok(self.collection_manager.create_collection(collection))
     }

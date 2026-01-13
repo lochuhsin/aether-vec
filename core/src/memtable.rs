@@ -6,7 +6,7 @@ use crate::collection::IndexType;
 use crate::document::Document;
 
 pub trait MemTable: Send + Sync {
-    fn insert(&mut self, _doc: Document) {
+    fn upsert(&mut self, _doc: Document) {
         panic!("Not implemented");
     }
 
@@ -36,7 +36,7 @@ impl Default for FlatMemTable {
 }
 
 impl MemTable for FlatMemTable {
-    fn insert(&mut self, doc: Document) {
+    fn upsert(&mut self, doc: Document) {
         self.table.insert(doc.id, Arc::new(doc));
     }
 
