@@ -115,13 +115,13 @@ impl FromStr for DistanceType {
 
 pub struct Collection {
     name: String,
-
+    memtable_size: usize,
     dimension: i32,
     distance: DistanceType,
     index_config: IndexConfig,
     memtable: RwLock<Box<dyn MemTable>>,
     wal_manager: WalManager,
-    seq_no: u64,
+    frozen_memtable_list: Vec<Box<dyn MemTable>>,
 }
 
 impl Collection {
@@ -130,8 +130,8 @@ impl Collection {
         dimension: i32,
         distance: &str,
         index_config: IndexConfig,
-        seq_no: u64,
         wal_manager: WalManager,
+        memtable_size: usize,
     ) -> Result<Self, CollectionError> {
         Ok(Collection {
             name: name.to_string(),
@@ -140,7 +140,8 @@ impl Collection {
             memtable: RwLock::new(get_memtable(&index_config.index)),
             index_config: index_config,
             wal_manager: wal_manager,
-            seq_no,
+            memtable_size: memtable_size,
+            frozen_memtable_list: Vec::new(),
         })
     }
     pub fn upsert(&mut self, document: Document) -> Result<(), CollectionError> {
@@ -149,9 +150,17 @@ impl Collection {
                 "Dimension mismatch".to_string(),
             )))
         } else {
-            self.wal_manager.write(Operation::Insert, &document)?;
             let mut memtable = self.memtable.write()?;
+
+            self.wal_manager.write(Operation::Insert, &document)?;
+
             memtable.upsert(document);
+            if memtable.size() >= self.memtable_size {
+                let old_memtable =
+                    std::mem::replace(&mut *memtable, get_memtable(&self.index_config.index));
+                self.frozen_memtable_list.push(old_memtable);
+                self.wal_manager.rotate()?;
+            }
 
             Ok(())
         }

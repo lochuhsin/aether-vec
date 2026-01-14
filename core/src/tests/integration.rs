@@ -50,3 +50,5 @@ fn test_fetch_documents() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+// Add multi thread tests

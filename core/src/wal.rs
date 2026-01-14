@@ -23,6 +23,8 @@ impl fmt::Display for Operation {
     }
 }
 
+const INITIAL_SEQ_NO: u64 = 0;
+
 pub struct WalManager {
     fpath: PathBuf,
     name: String,
@@ -31,15 +33,19 @@ pub struct WalManager {
 }
 
 impl WalManager {
-    pub fn new(fpath: &PathBuf, name: &str, seq_no: u64) -> Result<Self, WalError> {
+    pub fn new(fpath: &PathBuf, name: &str) -> Result<Self, WalError> {
         let fpath = fpath.join("wal");
 
+        // normally when we recover, we should read the last seq_no and create the file
+        // but for now, we just create the file
+
         std::fs::create_dir_all(&fpath)?;
-        let file = std::fs::File::create(fpath.join(format!("{}_{:09}.wal", name, seq_no)))?;
+        let file =
+            std::fs::File::create(fpath.join(format!("{}_{:09}.wal", name, INITIAL_SEQ_NO)))?;
         Ok(WalManager {
             fpath: fpath,
             name: name.to_string(),
-            seq_no,
+            seq_no: INITIAL_SEQ_NO,
             file: file,
         })
     }
@@ -72,5 +78,18 @@ impl WalManager {
         }
 
         Ok(records)
+    }
+
+    pub fn rotate(&mut self) -> Result<(), WalError> {
+        self.file.flush()?; // fsync ?
+
+        self.seq_no = self.seq_no + 1;
+        let file = std::fs::File::create(
+            self.fpath
+                .join(format!("{}_{:09}.wal", self.name, self.seq_no)),
+        )?;
+
+        self.file = file;
+        Ok(())
     }
 }

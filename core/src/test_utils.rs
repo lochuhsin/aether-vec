@@ -10,3 +10,7 @@ pub fn random_document(dim: usize) -> Document {
         content: "test".to_string(),
     }
 }
+
+pub fn bulk_random_documents(dim: usize, count: usize) -> Vec<Document> {
+    (0..count).map(|_| random_document(dim)).collect()
+}

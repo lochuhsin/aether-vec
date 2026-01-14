@@ -21,6 +21,10 @@ pub trait MemTable: Send + Sync {
     fn delete(&mut self, _id: &Uuid) {
         panic!("Not implemented");
     }
+
+    fn size(&self) -> usize {
+        panic!("Not implemented");
+    }
 }
 
 struct FlatMemTable {
@@ -50,6 +54,10 @@ impl MemTable for FlatMemTable {
 
     fn search(&self, vector: &Vec<f32>, top_k: i32) -> Vec<Arc<Document>> {
         panic!("Not implemented");
+    }
+
+    fn size(&self) -> usize {
+        self.table.len()
     }
 }
 

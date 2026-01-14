@@ -1,5 +1,5 @@
 use crate::collection::{Collection, CollectionManager, IndexConfig};
-use crate::constant::MAX_DIMENSION;
+use crate::constant::{DEFAULT_MEMTABLE_SIZE, MAX_DIMENSION};
 use crate::error::{CollectionError, DatabaseError};
 use crate::wal::WalManager;
 use fs2::FileExt;
@@ -14,6 +14,7 @@ pub struct AetherDB {
     path: PathBuf,
     collection_manager: CollectionManager,
     _lock_file: File, // process lock
+    memtable_size: usize,
 }
 
 impl AetherDB {
@@ -40,6 +41,7 @@ impl AetherDB {
             collection_manager: CollectionManager::new(),
             _lock_file: lock_file,
             path: pathbuf,
+            memtable_size: DEFAULT_MEMTABLE_SIZE, // I need another constructor to set this
         });
 
         let mut registry = DATABASE_REGISTRY.lock().unwrap();
@@ -66,8 +68,8 @@ impl AetherDB {
             dimension,
             distance,
             index_config,
-            0,
-            WalManager::new(&self.path, name, 0)?,
+            WalManager::new(&self.path, name)?,
+            self.memtable_size,
         )?;
         Ok(self.collection_manager.create_collection(collection))
     }
