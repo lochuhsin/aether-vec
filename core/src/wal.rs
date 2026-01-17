@@ -45,17 +45,17 @@ impl WalManager {
             fpath: fpath,
             name: name.to_string(),
             seq_no: INITIAL_SEQ_NO,
-            file: BufWriter::new(file),
+            file: BufWriter::with_capacity(65536, file),
         })
     }
 
     pub fn write(&mut self, op: Operation, data: &Document) -> Result<(), WalError> {
-        let record_bytes = bincode::serialize(&(op, data))?;
+        bincode::serialize_into(&mut self.file, &(op, data))?;
 
-        self.file.write_all(&record_bytes)?;
-
-        // Flush to at least OS level, not fsync. This could do extreme optimization
+        // Flush to at least OS level
         self.file.flush()?;
+        // Ensure data is on disk
+        self.file.get_ref().sync_data()?;
         Ok(())
     }
 
@@ -78,7 +78,8 @@ impl WalManager {
     }
 
     pub fn rotate(&mut self) -> Result<(), WalError> {
-        self.file.flush()?; // fsync ?
+        self.file.flush()?;
+        self.file.get_ref().sync_data()?;
 
         self.seq_no = self.seq_no + 1;
         let file = std::fs::File::create(
@@ -86,7 +87,7 @@ impl WalManager {
                 .join(format!("{}_{:09}.wal", self.name, self.seq_no)),
         )?;
 
-        self.file = BufWriter::new(file);
+        self.file = BufWriter::with_capacity(65536, file);
         Ok(())
     }
 }
@@ -160,6 +161,56 @@ mod tests {
             assert_eq!(records[0].1.content, "doc2");
         }
 
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_performance() {
+        let path = get_test_path("./test_wal_perf");
+        let count = 100;
+
+        {
+            let mut wal = WalManager::new(&path, "test_perf").unwrap();
+            let doc = Document::new(vec![1.0, 2.0], "data".to_string());
+
+            let start = std::time::Instant::now();
+            for _ in 0..count {
+                wal.write(Operation::Insert, &doc).unwrap();
+            }
+            let duration = start.elapsed();
+            println!(
+                "Write {} ops in {:?}, {:.2} ops/sec",
+                count,
+                duration,
+                count as f64 / duration.as_secs_f64()
+            );
+        }
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_large_write() {
+        let path = get_test_path("./test_wal_large");
+
+        {
+            let mut wal = WalManager::new(&path, "test_large").unwrap();
+            // 70KB data to exceed 64KB buffer
+            let large_data = vec![1.0; 17500];
+            let doc = Document::new(large_data.clone(), "large_doc".to_string());
+
+            wal.write(Operation::Insert, &doc).unwrap();
+
+            let records = wal.read().unwrap();
+            assert_eq!(records.len(), 1);
+            match &records[0] {
+                (Operation::Insert, d) => {
+                    assert_eq!(d.vector.len(), 17500);
+                    assert_eq!(d.content, "large_doc");
+                }
+                _ => panic!("Expected Insert"),
+            }
+        }
         cleanup(&path);
     }
 }
