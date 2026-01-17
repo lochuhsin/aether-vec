@@ -36,8 +36,7 @@ impl WalManager {
     pub fn new(fpath: &PathBuf, name: &str) -> Result<Self, WalError> {
         let fpath = fpath.join("wal");
 
-        // normally when we recover, we should read the last seq_no and create the file
-        // but for now, we just create the file
+        // TODO: implement WAL recovery mechanism
 
         std::fs::create_dir_all(&fpath)?;
         let file =
