@@ -1,6 +1,6 @@
 use bincode;
 use std::fmt;
-use std::io::{Cursor, Read, Write};
+use std::io::{BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
 use crate::Document;
@@ -29,7 +29,7 @@ pub struct WalManager {
     fpath: PathBuf,
     name: String,
     seq_no: u64,
-    file: File,
+    file: BufWriter<File>,
 }
 
 impl WalManager {
@@ -46,7 +46,7 @@ impl WalManager {
             fpath: fpath,
             name: name.to_string(),
             seq_no: INITIAL_SEQ_NO,
-            file: file,
+            file: BufWriter::new(file),
         })
     }
 
@@ -62,16 +62,14 @@ impl WalManager {
 
     pub fn read(&self) -> Result<Vec<(Operation, Document)>, WalError> {
         let mut records = Vec::new();
-        let mut file = File::open(
+        let file = File::open(
             self.fpath
                 .join(format!("{}_{:09}.wal", self.name, self.seq_no)),
         )?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)?;
-        let mut cursor = Cursor::new(buffer);
+        let mut reader = BufReader::new(file);
 
         loop {
-            match bincode::deserialize_from(&mut cursor) {
+            match bincode::deserialize_from(&mut reader) {
                 Ok(record) => records.push(record),
                 Err(_) => break,
             }
@@ -89,7 +87,80 @@ impl WalManager {
                 .join(format!("{}_{:09}.wal", self.name, self.seq_no)),
         )?;
 
-        self.file = file;
+        self.file = BufWriter::new(file);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn get_test_path(name: &str) -> PathBuf {
+        let path = PathBuf::from(name);
+        if path.exists() {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+        path
+    }
+
+    fn cleanup(path: &PathBuf) {
+        if path.exists() {
+            let _ = std::fs::remove_dir_all(path);
+        }
+    }
+
+    #[test]
+    fn test_write_and_read() {
+        let path = get_test_path("./test_wal_rw");
+
+        {
+            let mut wal = WalManager::new(&path, "test").unwrap();
+            let doc1 = Document::new(vec![1.0, 2.0], "doc1".to_string());
+            let doc2 = Document::new(vec![3.0, 4.0], "doc2".to_string());
+
+            wal.write(Operation::Insert, &doc1).unwrap();
+            wal.write(Operation::Delete, &doc2).unwrap();
+
+            let records = wal.read().unwrap();
+            assert_eq!(records.len(), 2);
+
+            match &records[0] {
+                (Operation::Insert, d) => assert_eq!(d.content, "doc1"),
+                _ => panic!("Expected Insert"),
+            }
+
+            match &records[1] {
+                (Operation::Delete, d) => assert_eq!(d.content, "doc2"),
+                _ => panic!("Expected Delete"),
+            }
+        }
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_rotate() {
+        let path = get_test_path("./test_wal_rotate");
+
+        {
+            let mut wal = WalManager::new(&path, "test_rotate").unwrap();
+
+            let doc1 = Document::new(vec![1.0], "doc1".to_string());
+            wal.write(Operation::Insert, &doc1).unwrap();
+
+            wal.rotate().unwrap();
+
+            let doc2 = Document::new(vec![2.0], "doc2".to_string());
+            wal.write(Operation::Insert, &doc2).unwrap();
+
+            // After rotate, read() should read the new file (seq_no=1)
+            let records = wal.read().unwrap();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].1.content, "doc2");
+        }
+
+        cleanup(&path);
     }
 }
