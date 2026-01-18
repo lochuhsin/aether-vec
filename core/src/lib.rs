@@ -1,4 +1,5 @@
 mod collection;
+mod compact;
 mod constant;
 mod database;
 mod document;
@@ -8,6 +9,7 @@ mod utils;
 mod wal;
 
 pub use collection::{Collection, IndexConfig};
+pub use compact::CompactionManager;
 pub use database::AetherDB;
 pub use document::Document;
 pub use error::{CollectionError, WalError};

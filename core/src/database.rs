@@ -1,7 +1,10 @@
 use crate::collection::{Collection, CollectionManager, IndexConfig};
+use crate::compact::BackgroundContext;
+use crate::compact::CompactionManager;
 use crate::constant::{DEFAULT_MEMTABLE_SIZE, MAX_DIMENSION};
 use crate::error::{CollectionError, DatabaseError};
 use crate::wal::WalManager;
+
 use fs2::FileExt;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -13,6 +16,8 @@ static DATABASE_REGISTRY: LazyLock<Mutex<DatabaseRegistery>> =
 pub struct AetherDB {
     path: PathBuf,
     collection_manager: CollectionManager,
+    compact_manager: CompactionManager,
+    background_context: BackgroundContext,
     _lock_file: File, // process lock
     memtable_size: usize,
 }
@@ -28,17 +33,25 @@ impl AetherDB {
             }
         }
 
-        // init db
         let pathbuf = PathBuf::from(path);
 
         let lock_file = validate_path(&pathbuf)?;
-
         lock_file.try_lock_exclusive().map_err(|_| {
             DatabaseError::InvalidPath(Some("Database is locked by another process".to_string()))
         })?;
 
+        let collection_manager = CollectionManager::new();
+
+        let compact_manager = CompactionManager::new(pathbuf.clone());
+        let compact_task_sender = compact_manager.spin_up_dispatcher();
+        compact_manager.spin_up_workers();
+
         let db = Arc::new(AetherDB {
-            collection_manager: CollectionManager::new(),
+            collection_manager: collection_manager,
+            compact_manager: compact_manager,
+            background_context: BackgroundContext {
+                compact_task_sender: compact_task_sender,
+            },
             _lock_file: lock_file,
             path: pathbuf,
             memtable_size: DEFAULT_MEMTABLE_SIZE, // I need another constructor to set this
@@ -70,6 +83,7 @@ impl AetherDB {
             index_config,
             WalManager::new(&self.path, name)?,
             self.memtable_size,
+            self.background_context.clone(),
         )?;
         Ok(self.collection_manager.create_collection(collection))
     }

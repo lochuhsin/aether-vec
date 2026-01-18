@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use crate::Document;
 use crate::WalError;
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 
@@ -24,6 +25,7 @@ impl fmt::Display for Operation {
 }
 
 const INITIAL_SEQ_NO: u64 = 0;
+const WAL_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
 
 pub struct WalManager {
     fpath: PathBuf,
@@ -41,6 +43,7 @@ impl WalManager {
         std::fs::create_dir_all(&fpath)?;
         let file =
             std::fs::File::create(fpath.join(format!("{}_{:09}.wal", name, INITIAL_SEQ_NO)))?;
+        file.allocate(WAL_FILE_SIZE)?;
         Ok(WalManager {
             fpath: fpath,
             name: name.to_string(),
@@ -89,6 +92,10 @@ impl WalManager {
 
         self.file = BufWriter::with_capacity(65536, file);
         Ok(())
+    }
+
+    pub fn get_seq_no(&self) -> u64 {
+        self.seq_no
     }
 }
 

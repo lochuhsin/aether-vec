@@ -1,11 +1,12 @@
 use uuid::Uuid;
 
+use crate::compact::{BackgroundContext, CompactTask};
 use crate::document::Document;
 use crate::error::CollectionError;
 use crate::memtable::{MemTable, get_memtable};
 use crate::wal::Operation;
 use crate::wal::WalManager;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
@@ -121,7 +122,8 @@ pub struct Collection {
     index_config: IndexConfig,
     memtable: RwLock<Box<dyn MemTable>>,
     wal_manager: WalManager,
-    frozen_memtable_list: Vec<Box<dyn MemTable>>,
+    frozen_memtable_list: VecDeque<Arc<dyn MemTable>>, // Note: this might grow infinity. Need a bound on it, and force write both write to disk and stop accepting new write
+    background_context: BackgroundContext,
 }
 
 impl Collection {
@@ -132,6 +134,7 @@ impl Collection {
         index_config: IndexConfig,
         wal_manager: WalManager,
         memtable_size: usize,
+        background_context: BackgroundContext,
     ) -> Result<Self, CollectionError> {
         Ok(Collection {
             name: name.to_string(),
@@ -141,7 +144,8 @@ impl Collection {
             index_config: index_config,
             wal_manager: wal_manager,
             memtable_size: memtable_size,
-            frozen_memtable_list: Vec::new(),
+            frozen_memtable_list: VecDeque::with_capacity(10),
+            background_context: background_context,
         })
     }
     pub fn upsert(&mut self, document: Document) -> Result<(), CollectionError> {
@@ -158,8 +162,20 @@ impl Collection {
             if memtable.size() >= self.memtable_size {
                 let old_memtable =
                     std::mem::replace(&mut *memtable, get_memtable(&self.index_config.index));
-                self.frozen_memtable_list.push(old_memtable);
+
+                let arc_memtable: Arc<dyn MemTable> = Arc::from(old_memtable);
+
+                self.frozen_memtable_list.push_back(arc_memtable.clone());
                 self.wal_manager.rotate()?;
+
+                self.background_context
+                    .compact_task_sender
+                    .send(CompactTask {
+                        collection_name: self.name.clone(),
+                        seq_no: self.wal_manager.get_seq_no(),
+                        memtable: arc_memtable.clone(),
+                    })
+                    .map_err(|e| CollectionError::InternalError(Some(e.to_string())))?;
             }
 
             Ok(())
