@@ -8,6 +8,7 @@ pub enum CollectionError {
     PoisonError(Option<String>),
     WalError(Option<String>),
     NotFound(Option<String>),
+    InternalError(Option<String>),
 }
 
 impl fmt::Display for CollectionError {
@@ -48,6 +49,12 @@ impl fmt::Display for CollectionError {
             }
             CollectionError::PoisonError(None) => {
                 write!(f, "Poison error")
+            }
+            CollectionError::InternalError(Some(msg)) => {
+                write!(f, "Internal error: {}", msg)
+            }
+            CollectionError::InternalError(None) => {
+                write!(f, "Internal error")
             }
         }
     }

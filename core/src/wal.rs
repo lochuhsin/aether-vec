@@ -92,4 +92,8 @@ impl WalManager {
         self.file = file;
         Ok(())
     }
+
+    pub fn get_seq_no(&self) -> u64 {
+        self.seq_no
+    }
 }
