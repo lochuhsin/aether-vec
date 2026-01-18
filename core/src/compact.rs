@@ -24,7 +24,7 @@ pub struct CompactTask {
 Inspired by Go's GPM model LOL
 */
 
-/*  It's a Multi-Lane Executor
+/*  Multi-Lane Executor (Found the name on internet ^ ^)
 
                                   ┌─────────────────────────┐
                                   │   Dispatcher Thread     │
@@ -87,6 +87,7 @@ pub struct CompactionManager {
     lanes: Arc<DashMap<String, Lane>>,
     min_worker_count: usize,
     max_worker_count: usize,
+    default_lane_capacity: usize,
 }
 
 impl CompactionManager {
@@ -97,22 +98,20 @@ impl CompactionManager {
             lanes: Arc::new(DashMap::new()),
             min_worker_count: 4,
             max_worker_count: 16,
+            default_lane_capacity: 50,
         }
-    }
-
-    pub fn new_task_queue(&mut self, name: &str) {
-        self.lanes.insert(name.to_string(), Lane::default());
     }
 
     pub fn spin_up_dispatcher(&self) -> Sender<CompactTask> {
         let (sx, rx): (Sender<CompactTask>, Receiver<CompactTask>) = unbounded();
         let lanes = self.lanes.clone();
+        let default_lane_capacity = self.default_lane_capacity;
 
         thread::spawn(move || {
             while let Ok(task) = rx.recv() {
                 let lane = lanes
                     .entry(task.collection_name.clone())
-                    .or_insert_with(|| Lane::default());
+                    .or_insert_with(|| Lane::with_capacity(default_lane_capacity));
 
                 lane.task_queue.lock().unwrap().push_back(task);
             }
@@ -137,15 +136,22 @@ impl CompactionManager {
                             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                             .is_ok()
                         {
-                            let task = lane.task_queue.lock().unwrap().pop_front();
-                            if let Some(task) = task {
+                            let task_option = match lane.task_queue.lock() {
+                                Ok(mut queue) => queue.pop_front(),
+                                Err(_) => {
+                                    eprintln!("WARN: task_queue lock was poisoned, recovering...");
+                                    None
+                                }
+                            };
+
+                            if let Some(task) = task_option {
                                 task_found = true;
                                 // write to disk
                             }
                             lane.is_processing.store(false, Ordering::SeqCst);
                         }
 
-                        // NOTE: Just do it like this for now, but it is not efficient enough
+                        // TODO: Just do it like this for now, but it is not efficient enough
                         // as it can cause starvation. The collection in the front always get processed first.
                         if task_found {
                             break;
@@ -153,6 +159,10 @@ impl CompactionManager {
                     }
 
                     if !task_found {
+                        // TODO: This is inefficient as it consumes CPU cycles even when there is no work.
+                        // A more efficient, event-driven approach would be to use a notification mechanism
+                        // (like a condition variable, or another crossbeam-channel)
+                        // to wake up idle workers only when new tasks are available.
                         thread::sleep(Duration::from_millis(100));
                     }
                 }
