@@ -1,4 +1,5 @@
 /target
 /.agent
 /test_path
-agent.md
+.cursorrules
+.ignore
