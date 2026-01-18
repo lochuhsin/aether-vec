@@ -113,12 +113,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Roadmap
 
+### Done
 -   [x] Core `AetherDB`, `Collection`, `Document` API
 -   [x] Write-Ahead Log (WAL) with `sync_data`
 -   [x] Multi-Lane Executor for background compaction (GPM-inspired)
+
+### Phase 0: Observability
+-   [ ] Compaction metrics: input/output bytes, records/sec, CPU cycles
+-   [ ] Backlog metrics: L0 file count, pending jobs, stall events
+-   [ ] mmap / page cache: major/minor page faults, readahead hit rate
+-   [ ] Query latency: p50/p95/p99/p999, CPU vs I/O breakdown
+
+### Phase 1: Memtable / Write Path
+-   [ ] Memory arena (bump allocator) for memtable
+-   [ ] Log-structured memtable (append-only records)
+-   [ ] Thread-local arenas for maximum throughput
+-   [ ] Move expensive fields (vector/content) out of hot index path
+
+### Phase 2: Compaction Pipeline
+-   [ ] Pipeline stages: Reader → Merge/Encode/Compress → Writer
+-   [ ] CPU affinity (pin) for CPU-heavy stages
+-   [ ] Isolate query cores from compaction
+-   [ ] mmap + `madvise(SEQUENTIAL)` for input reads
+
+### Phase 3: On-Disk ANN Index
 -   [ ] On-disk Segment format (SSTable-like)
 -   [ ] HNSW / IVF index implementation
--   [ ] Disk-based ANN search (mmap / DiskANN-inspired)
+-   [ ] mmap for immutable snapshots (read-only)
+-   [ ] Page-aligned node records (4KB/8KB)
+-   [ ] Graph reordering for locality
+-   [ ] Upgrade to explicit batch I/O (`io_uring`) for p99/p999
+
+### Phase 4: Scalability
+-   [ ] Sharding (`ann_shard_i.db`)
+-   [ ] Index-LSM: L0 (RAM delta) → L1 (small segments) → L2 (base snapshot)
+-   [ ] RAM router for top-S shard selection
+
+### Phase 5: Write-Heavy Optimization
+-   [ ] Staleness SLO (e.g., 50ms for delta, minutes for base)
+-   [ ] Adaptive degradation: delta size, query pruning, merge throttling
+
+### Future
 -   [ ] Server mode (gRPC / REST)
 
 ---
