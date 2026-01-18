@@ -136,6 +136,9 @@ impl CompactionManager {
                             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                             .is_ok()
                         {
+                            // TODO: Use a RAII Guard (LaneProcessingGuard) here to ensure `is_processing` is reset to false
+                            // even if a panic occurs in the critical section (e.g. during disk write).
+                            // Currently, if a panic happens, the flag remains true and the lane becomes dead.
                             let task_option = match lane.task_queue.lock() {
                                 Ok(mut queue) => queue.pop_front(),
                                 Err(_) => {
@@ -151,8 +154,10 @@ impl CompactionManager {
                             lane.is_processing.store(false, Ordering::SeqCst);
                         }
 
-                        // TODO: Just do it like this for now, but it is not efficient enough
-                        // as it can cause starvation. The collection in the front always get processed first.
+                        // TODO: Implement Round-Robin Fairness Strategy
+                        // Current linear scan (from start to end) causes starvation for lanes at the end of the map.
+                        // Workers should maintain a `current_offset` and start scanning from there, incrementing it after each check.
+                        // offset = (offset + 1) % distinct_lanes_count
                         if task_found {
                             break;
                         }

@@ -44,6 +44,7 @@ impl AetherDB {
 
         let compact_manager = CompactionManager::new(pathbuf.clone());
         let compact_task_sender = compact_manager.spin_up_dispatcher();
+        compact_manager.spin_up_workers();
 
         let db = Arc::new(AetherDB {
             collection_manager: collection_manager,

@@ -122,7 +122,7 @@ pub struct Collection {
     index_config: IndexConfig,
     memtable: RwLock<Box<dyn MemTable>>,
     wal_manager: WalManager,
-    frozen_memtable_list: VecDeque<Arc<dyn MemTable>>,
+    frozen_memtable_list: VecDeque<Arc<dyn MemTable>>, // Note: this might grow infinity. Need a bound on it, and force write both write to disk and stop accepting new write
     background_context: BackgroundContext,
 }
 
