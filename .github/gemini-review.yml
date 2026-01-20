@@ -17,13 +17,9 @@ jobs:
           fetch-depth: 0
 
       - name: "Google Jules Review"
-        # 2026 年最新版的 Google 官方 Action
         uses: google-github-actions/jules-pr-review@v2 
         with:
           api-key: ${{ secrets.JULES_API_KEY }}
-          # 指定使用您的付費權限對應的模型
           model: "gemini-3-pro-latest" 
-          # 可選：開啟 'Thinking' 模式以獲得更深度的邏輯審查
           mode: "thinking" 
-          # 自動在代碼行內留言
           output_type: "inline-comments"
