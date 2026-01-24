@@ -1,6 +1,5 @@
-use crate::SSTEvent;
 use crate::compact::CompactTask;
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Sender;
 
 #[derive(Clone)]
 pub struct BackgroundContext {

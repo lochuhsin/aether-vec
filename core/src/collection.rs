@@ -1,5 +1,5 @@
-use crate::background_context::BackgroundContext;
 use crate::compact::CompactTask;
+use crate::context::BackgroundContext;
 use crate::document::Document;
 use crate::error::CollectionError;
 use crate::index::{IndexManager, SSTMetadata};

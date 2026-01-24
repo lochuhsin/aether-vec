@@ -1,8 +1,8 @@
 use crate::SSTEvent;
-use crate::background_context::BackgroundContext;
 use crate::collection::{Collection, CollectionManager, IndexConfig};
 use crate::compact::CompactionManager;
 use crate::constant::{DEFAULT_MEMTABLE_SIZE, MAX_DIMENSION};
+use crate::context::BackgroundContext;
 use crate::error::{CollectionError, DatabaseError};
 use crate::wal::WalManager;
 use std::thread;
