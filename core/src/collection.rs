@@ -170,11 +170,11 @@ impl Collection {
 
                 self.background_context
                     .compact_task_sender
-                    .send(CompactTask {
-                        collection_name: self.name.clone(),
-                        seq_no: self.wal_manager.get_seq_no(),
-                        memtable: arc_memtable.clone(),
-                    })
+                    .send(CompactTask::new_default_layer(
+                        self.name.clone(),
+                        self.wal_manager.get_seq_no(),
+                        arc_memtable.clone(),
+                    ))
                     .map_err(|e| CollectionError::InternalError(Some(e.to_string())))?;
             }
 
@@ -184,14 +184,18 @@ impl Collection {
 
     pub fn search(&self, vector: &Vec<f32>, top_k: i32) -> Vec<Arc<Document>> {
         self.memtable.read().unwrap().search(vector, top_k)
+        // Ideally we have a search manager to identify where and how to search.
+        // Since the process is quite complex
+        // TODO: search frozen memtables
+        // TODO: search SSTs
     }
 
-    pub fn fetch(&self, uuid: &Uuid) -> Option<Arc<Document>> {
-        self.memtable.read().unwrap().get(uuid)
+    pub fn fetch(&self, id: &u128) -> Option<Arc<Document>> {
+        self.memtable.read().unwrap().get(id)
     }
 
-    pub fn delete(&mut self, uuid: &Uuid) {
-        self.memtable.write().unwrap().delete(uuid);
+    pub fn delete(&mut self, id: &u128) {
+        self.memtable.write().unwrap().delete(id);
     }
 }
 

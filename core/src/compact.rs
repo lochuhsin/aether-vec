@@ -8,23 +8,41 @@ use std::thread;
 use std::time::Duration;
 
 use crate::memtable::MemTable;
+use crate::sst::SSTManager;
 
 #[derive(Clone)]
 pub struct BackgroundContext {
     pub compact_task_sender: Sender<CompactTask>,
 }
 
+const DEFAULT_SST_LAYER: u64 = 0;
+
 pub struct CompactTask {
     pub collection_name: String,
     pub seq_no: u64,
+    pub layer: u64,
     pub memtable: Arc<dyn MemTable>,
 }
 
-/*
-Inspired by Go's GPM model LOL
-*/
+impl CompactTask {
+    pub fn new_default_layer(
+        collection_name: String,
+        seq_no: u64,
+        memtable: Arc<dyn MemTable>,
+    ) -> Self {
+        Self {
+            collection_name,
+            seq_no,
+            layer: DEFAULT_SST_LAYER,
+            memtable,
+        }
+    }
+}
 
-/*  Multi-Lane Executor (Found the name on internet ^ ^)
+/*
+Inspired by Go's GPM model
+
+Multi-Lane Executor (Found the name on internet ^ ^)
 
                                   ┌─────────────────────────┐
                                   │   Dispatcher Thread     │
@@ -83,22 +101,21 @@ impl Default for Lane {
 // NOTE: We should have a dynamic worker count, scale with the number of tasks
 
 pub struct CompactionManager {
-    path: PathBuf,
     lanes: Arc<DashMap<String, Lane>>,
     min_worker_count: usize,
     max_worker_count: usize,
     default_lane_capacity: usize,
+    sst_manager: Arc<SSTManager>,
 }
 
 impl CompactionManager {
     pub fn new(path: PathBuf) -> Self {
-        let path = path.join("compact");
         CompactionManager {
-            path: path,
             lanes: Arc::new(DashMap::new()),
             min_worker_count: 4,
             max_worker_count: 16,
             default_lane_capacity: 50,
+            sst_manager: Arc::new(SSTManager::new(path)),
         }
     }
 
@@ -122,6 +139,7 @@ impl CompactionManager {
     pub fn spin_up_workers(&self) {
         for _ in 0..self.min_worker_count {
             let lanes = self.lanes.clone();
+            let sst_manager = self.sst_manager.clone();
             thread::spawn(move || {
                 loop {
                     // All workers should check all lanes
@@ -149,7 +167,14 @@ impl CompactionManager {
 
                             if let Some(task) = task_option {
                                 task_found = true;
-                                // write to disk
+                                if let Err(e) = sst_manager.write_memtable(
+                                    task.collection_name.as_str(),
+                                    task.seq_no,
+                                    task.layer,
+                                    task.memtable.as_ref(),
+                                ) {
+                                    eprintln!("ERROR: Failed to write SST: {}", e);
+                                }
                             }
                             lane.is_processing.store(false, Ordering::SeqCst);
                         }

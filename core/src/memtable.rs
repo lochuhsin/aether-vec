@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use uuid::Uuid;
 
 use crate::collection::IndexType;
 use crate::document::Document;
@@ -10,7 +9,7 @@ pub trait MemTable: Send + Sync {
         panic!("Not implemented");
     }
 
-    fn get(&self, _id: &Uuid) -> Option<Arc<Document>> {
+    fn get(&self, _id: &u128) -> Option<Arc<Document>> {
         panic!("Not implemented");
     }
 
@@ -18,17 +17,21 @@ pub trait MemTable: Send + Sync {
         panic!("Not implemented");
     }
 
-    fn delete(&mut self, _id: &Uuid) {
+    fn delete(&mut self, _id: &u128) {
         panic!("Not implemented");
     }
 
     fn size(&self) -> usize {
         panic!("Not implemented");
     }
+
+    fn sorted_iter(&self) -> Box<dyn Iterator<Item = Arc<Document>> + '_> {
+        panic!("Not implemented")
+    }
 }
 
 struct FlatMemTable {
-    table: HashMap<Uuid, Arc<Document>>,
+    table: HashMap<u128, Arc<Document>>,
 }
 
 impl Default for FlatMemTable {
@@ -44,11 +47,11 @@ impl MemTable for FlatMemTable {
         self.table.insert(doc.id, Arc::new(doc));
     }
 
-    fn delete(&mut self, id: &Uuid) {
+    fn delete(&mut self, id: &u128) {
         self.table.remove(id);
     }
 
-    fn get(&self, id: &Uuid) -> Option<Arc<Document>> {
+    fn get(&self, id: &u128) -> Option<Arc<Document>> {
         self.table.get(id).cloned()
     }
 
@@ -58,6 +61,14 @@ impl MemTable for FlatMemTable {
 
     fn size(&self) -> usize {
         self.table.len()
+    }
+
+    fn sorted_iter(&self) -> Box<dyn Iterator<Item = Arc<Document>> + '_> {
+        // 可能return 要做 Option 避免 unwrap
+        let map = &self.table;
+        let mut keys: Vec<u128> = map.keys().copied().collect();
+        keys.sort_unstable();
+        Box::new(keys.into_iter().map(|id| map.get(&id).unwrap().clone()))
     }
 }
 
