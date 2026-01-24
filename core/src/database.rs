@@ -1,10 +1,13 @@
+use crate::SSTEvent;
+use crate::background_context::BackgroundContext;
 use crate::collection::{Collection, CollectionManager, IndexConfig};
-use crate::compact::BackgroundContext;
 use crate::compact::CompactionManager;
 use crate::constant::{DEFAULT_MEMTABLE_SIZE, MAX_DIMENSION};
 use crate::error::{CollectionError, DatabaseError};
 use crate::wal::WalManager;
+use std::thread;
 
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use fs2::FileExt;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -15,13 +18,14 @@ static DATABASE_REGISTRY: LazyLock<Mutex<DatabaseRegistery>> =
 
 pub struct AetherDB {
     path: PathBuf,
-    collection_manager: CollectionManager,
+    collection_manager: Arc<CollectionManager>,
     compact_manager: CompactionManager,
     background_context: BackgroundContext,
     _lock_file: File, // process lock
     memtable_size: usize,
 }
 
+// We need a way to gracefully shutdwon all the threads (database, compaction manager ...etc)
 impl AetherDB {
     pub fn new(path: &str) -> Result<Arc<Self>, DatabaseError> {
         {
@@ -40,11 +44,16 @@ impl AetherDB {
             DatabaseError::InvalidPath(Some("Database is locked by another process".to_string()))
         })?;
 
-        let collection_manager = CollectionManager::new();
+        // setup sst event channel, NOTE: I don't like this design, we can do better
+        let (sst_event_sender, sst_event_receiver) = unbounded::<SSTEvent>();
 
-        let compact_manager = CompactionManager::new(pathbuf.clone());
+        let collection_manager = Arc::new(CollectionManager::new());
+
+        let compact_manager = CompactionManager::new(pathbuf.clone(), sst_event_sender);
         let compact_task_sender = compact_manager.spin_up_dispatcher();
         compact_manager.spin_up_workers();
+
+        Self::sst_dispater_loop(sst_event_receiver.clone(), collection_manager.clone());
 
         let db = Arc::new(AetherDB {
             collection_manager: collection_manager,
@@ -94,12 +103,26 @@ impl AetherDB {
             .ok_or_else(|| CollectionError::NotFound(Some(name.to_string())))
     }
 
-    pub fn list_collections(&self) -> Result<Vec<String>, CollectionError> {
+    pub fn delete_collection(&self, name: &str) -> Result<(), CollectionError> {
         panic!("Not implemented");
     }
 
-    pub fn delete_collection(&self, name: &str) -> Result<(), CollectionError> {
-        panic!("Not implemented");
+    fn sst_dispater_loop(
+        sst_event_receiver: Receiver<SSTEvent>,
+        collection_manager: Arc<CollectionManager>,
+    ) {
+        thread::spawn(move || {
+            loop {
+                match sst_event_receiver.recv() {
+                    Ok(event) => {
+                        collection_manager.on_sst_created(event.metadata);
+                    }
+                    Err(_) => {
+                        break;
+                    }
+                }
+            }
+        });
     }
 }
 

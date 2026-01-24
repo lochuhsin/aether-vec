@@ -1,9 +1,10 @@
-use uuid::Uuid;
-
-use crate::compact::{BackgroundContext, CompactTask};
+use crate::background_context::BackgroundContext;
+use crate::compact::CompactTask;
 use crate::document::Document;
 use crate::error::CollectionError;
+use crate::index::{IndexManager, SSTMetadata};
 use crate::memtable::{MemTable, get_memtable};
+use crate::search::SearchManager;
 use crate::wal::Operation;
 use crate::wal::WalManager;
 use std::collections::{HashMap, VecDeque};
@@ -92,7 +93,8 @@ impl Default for IndexConfig {
     }
 }
 
-enum DistanceType {
+#[derive(Debug, Clone)]
+pub enum DistanceType {
     Cosine,
     L2,
     Dot,
@@ -124,6 +126,8 @@ pub struct Collection {
     wal_manager: WalManager,
     frozen_memtable_list: VecDeque<Arc<dyn MemTable>>, // Note: this might grow infinity. Need a bound on it, and force write both write to disk and stop accepting new write
     background_context: BackgroundContext,
+    index_manager: Arc<IndexManager>,
+    search_manager: SearchManager,
 }
 
 impl Collection {
@@ -136,16 +140,22 @@ impl Collection {
         memtable_size: usize,
         background_context: BackgroundContext,
     ) -> Result<Self, CollectionError> {
+        let index_manager = Arc::new(IndexManager::default());
+
+        let distance_type: DistanceType = distance.parse()?;
+
         Ok(Collection {
             name: name.to_string(),
             dimension: dimension,
-            distance: distance.parse()?,
+            distance: distance_type.clone(),
             memtable: RwLock::new(get_memtable(&index_config.index)),
             index_config: index_config,
             wal_manager: wal_manager,
             memtable_size: memtable_size,
             frozen_memtable_list: VecDeque::with_capacity(10),
             background_context: background_context,
+            search_manager: SearchManager::new(index_manager.clone(), distance_type),
+            index_manager: index_manager,
         })
     }
     pub fn upsert(&mut self, document: Document) -> Result<(), CollectionError> {
@@ -184,14 +194,26 @@ impl Collection {
 
     pub fn search(&self, vector: &Vec<f32>, top_k: i32) -> Vec<Arc<Document>> {
         self.memtable.read().unwrap().search(vector, top_k)
-        // Ideally we have a search manager to identify where and how to search.
-        // Since the process is quite complex
-        // TODO: search frozen memtables
-        // TODO: search SSTs
     }
 
     pub fn fetch(&self, id: &u128) -> Option<Arc<Document>> {
-        self.memtable.read().unwrap().get(id)
+        // I hope search manager is capable of fetching from memtables
+        // this will be way better than the current implementation
+        if let Some(doc) = self.memtable.read().unwrap().get(id) {
+            return Some(doc.clone());
+        }
+
+        for memtable in self.frozen_memtable_list.iter() {
+            if let Some(doc) = memtable.get(id) {
+                return Some(doc.clone());
+            }
+        }
+
+        if let Some(doc) = self.search_manager.fetch(id) {
+            return Some(doc);
+        }
+
+        None
     }
 
     pub fn delete(&mut self, id: &u128) {
@@ -229,5 +251,17 @@ impl CollectionManager {
 
     pub fn delete_collection(&mut self, name: &str) {
         self.collections.write().unwrap().remove(name);
+    }
+
+    // TODO: handle unwrap properly
+    pub fn on_sst_created(&self, sst: SSTMetadata) {
+        let collection = self.collections.read().unwrap();
+        collection
+            .get(&sst.collection_name)
+            .unwrap()
+            .write()
+            .unwrap()
+            .index_manager
+            .add_sst_metadata(sst);
     }
 }
