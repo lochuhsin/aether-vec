@@ -44,7 +44,12 @@ fn test_fetch_documents() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Document not found".into());
     }
 
-    if collection.write().unwrap().fetch(&Uuid::new_v4()).is_some() {
+    if collection
+        .write()
+        .unwrap()
+        .fetch(&Uuid::new_v4().as_u128())
+        .is_some()
+    {
         return Err("Document should not be found".into());
     }
 

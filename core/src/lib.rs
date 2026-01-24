@@ -5,6 +5,7 @@ mod database;
 mod document;
 mod error;
 mod memtable;
+mod sst;
 mod utils;
 mod wal;
 
@@ -13,6 +14,7 @@ pub use compact::CompactionManager;
 pub use database::AetherDB;
 pub use document::Document;
 pub use error::{CollectionError, WalError};
+pub use sst::{Footer, IndexEntry, SSTManager};
 pub use utils::*;
 pub use wal::Operation;
 
