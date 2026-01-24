@@ -1,3 +1,4 @@
+use crate::SSTMetadata;
 use crate::document::Document;
 use crate::memtable::MemTable;
 use serde::{Deserialize, Serialize};
@@ -109,7 +110,7 @@ impl SSTManager {
         seq_no: u64,
         layer: u64,
         memtable: &dyn MemTable,
-    ) -> std::io::Result<PathBuf> {
+    ) -> std::io::Result<SSTMetadata> {
         // fp: root/{collection}/L{layer}/{seq_no}.sst
         let dir_path = self.path.join(collection_name).join(format!("L{}", layer));
         fs::create_dir_all(&dir_path)?;
@@ -169,7 +170,15 @@ impl SSTManager {
         writer.write_all(&footer.to_bytes())?;
         writer.flush()?;
 
-        Ok(fpath)
+        Ok(SSTMetadata {
+            collection_name: collection_name.to_string(),
+            seq_no,
+            layer,
+            min_id,
+            max_id,
+            path: fpath,
+            entry_count,
+        })
     }
 
     pub fn read(

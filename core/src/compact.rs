@@ -1,3 +1,4 @@
+use crate::SSTEvent;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use dashmap::DashMap;
 use std::collections::VecDeque;
@@ -9,11 +10,6 @@ use std::time::Duration;
 
 use crate::memtable::MemTable;
 use crate::sst::SSTManager;
-
-#[derive(Clone)]
-pub struct BackgroundContext {
-    pub compact_task_sender: Sender<CompactTask>,
-}
 
 const DEFAULT_SST_LAYER: u64 = 0;
 
@@ -106,16 +102,18 @@ pub struct CompactionManager {
     max_worker_count: usize,
     default_lane_capacity: usize,
     sst_manager: Arc<SSTManager>,
+    sst_event_sender: Sender<SSTEvent>,
 }
 
 impl CompactionManager {
-    pub fn new(path: PathBuf) -> Self {
+    pub fn new(path: PathBuf, sst_event_sender: Sender<SSTEvent>) -> Self {
         CompactionManager {
             lanes: Arc::new(DashMap::new()),
             min_worker_count: 4,
             max_worker_count: 16,
             default_lane_capacity: 50,
             sst_manager: Arc::new(SSTManager::new(path)),
+            sst_event_sender: sst_event_sender,
         }
     }
 
@@ -140,6 +138,7 @@ impl CompactionManager {
         for _ in 0..self.min_worker_count {
             let lanes = self.lanes.clone();
             let sst_manager = self.sst_manager.clone();
+            let sst_event_sender = self.sst_event_sender.clone();
             thread::spawn(move || {
                 loop {
                     // All workers should check all lanes
@@ -165,15 +164,27 @@ impl CompactionManager {
                                 }
                             };
 
+                            // TODO: Handle when sst failed to write to disk or something
                             if let Some(task) = task_option {
                                 task_found = true;
-                                if let Err(e) = sst_manager.write_memtable(
+
+                                let sst_metadata = sst_manager.write_memtable(
                                     task.collection_name.as_str(),
                                     task.seq_no,
                                     task.layer,
                                     task.memtable.as_ref(),
-                                ) {
-                                    eprintln!("ERROR: Failed to write SST: {}", e);
+                                );
+
+                                match sst_metadata {
+                                    Ok(metadata) => {
+                                        sst_event_sender.send(SSTEvent { metadata }).unwrap();
+                                    }
+                                    Err(e) => {
+                                        panic!(
+                                            "Not implement yet, Need to do this properly, we can add status to SSTEvent and determine by database level: {}",
+                                            e
+                                        );
+                                    }
                                 }
                             }
                             lane.is_processing.store(false, Ordering::SeqCst);
