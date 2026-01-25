@@ -109,8 +109,8 @@ impl CompactionManager {
     pub fn new(path: PathBuf, sst_event_sender: Sender<SSTEvent>) -> Self {
         CompactionManager {
             lanes: Arc::new(DashMap::new()),
-            min_worker_count: 4,
-            max_worker_count: 16,
+            min_worker_count: 2,
+            max_worker_count: 4,
             default_lane_capacity: 50,
             sst_manager: Arc::new(SSTManager::new(path)),
             sst_event_sender: sst_event_sender,
